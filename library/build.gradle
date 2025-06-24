@@ -1,0 +1,6 @@
+// Shared library module
+
+dependencies {
+    implementation project(':common')
+    implementation libs.slf4j
+}
