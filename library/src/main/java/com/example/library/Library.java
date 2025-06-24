@@ -7,7 +7,7 @@ public class Library {
         return Util.greet("Library");
     }
 
-    public static String getMessage() {
-        return lib();
+    public static Goat newGoat(String name, int age) {
+        return new Goat(name, age);
     }
 }

@@ -2,6 +2,7 @@
 
 dependencies {
     implementation project(':common')
+    implementation project(':library')
     implementation libs.commonsIo
     implementation libs.commonsLang3
 }

@@ -1,15 +1,15 @@
 # Gradle Cookbook by Example
 
 This sample demonstrates a multi-project build with Eclipse support.
-It includes multiple layers of modules that depend on each other
-and a simple Swing UI for a thick client application.
+It now implements a simple **Goat Management** application to showcase
+cross-project dependencies.
 
 ### Modules
 
 - `common` – basic utilities shared across the repo
-- `library` – library logic depending on `common`
-- `data` – data access using `commons-io` and `commons-lang3`
-- `service` – service layer combining `data` and `library`
+- `library` – domain classes such as `Goat`
+- `data` – in-memory repository using `commons-lang3`
+- `service` – service layer combining data and library
 - `ui` – Swing user interface depending on `service`
 - `app` – runnable entry point assembling everything
 
