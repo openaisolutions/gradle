@@ -1,7 +1,9 @@
+plugins { id 'org.example.java-module' }
+
 // Data access module
 
 dependencies {
-    implementation project(':common')
+    implementation project(':shared')
     implementation libs.commonsIo
     implementation libs.commonsLang3
 }

@@ -1,5 +1,5 @@
 rootProject.name = 'gradle-cookbook'
-include 'common', 'library', 'data', 'service', 'ui', 'app'
+include 'common', 'library', 'data', 'service', 'ui', 'app', 'shared'
 
 dependencyResolutionManagement {
     versionCatalogs {

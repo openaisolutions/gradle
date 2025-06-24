@@ -40,3 +40,10 @@ with install4j for Windows. Example:
 ```bash
 ./scripts/package-install4j.sh
 ```
+
+## Eclipse import and hot reload
+
+1. Run `./gradlew eclipse` and import the project via **File ▸ Import ▸ Existing Gradle Project**.
+2. In **Preferences ▸ Gradle ▸ Synchronization** enable *Synchronize automatically after builds*.
+3. Launch the `app` run configuration from the Gradle Tasks view. While it runs under the debugger, editing a method signature in `library` and saving will trigger HotswapAgent to reload the class.
+4. For instant recompiles run `./gradlew -t classes` in the background so Eclipse picks up new class files immediately.

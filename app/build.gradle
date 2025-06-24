@@ -1,14 +1,22 @@
 plugins {
     id 'application'
+    id 'org.example.java-module'
 }
 
 application {
     mainClass = 'com.example.app.Main'
 }
 
+configurations {
+    developmentOnly
+    runtimeClasspath.extendsFrom developmentOnly
+}
+
 dependencies {
     implementation project(':ui')
-    implementation project(':service')
-    implementation project(':library')
-    implementation project(':common')
+    developmentOnly 'org.hotswapagent:hotswap-agent-core:2.0.2'
+}
+
+tasks.named('run') {
+    jvmArgs "-javaagent:${configurations.developmentOnly.singleFile}"
 }
