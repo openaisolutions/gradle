@@ -1,0 +1,7 @@
+// Data access module
+
+dependencies {
+    implementation project(':common')
+    implementation libs.commonsIo
+    implementation libs.commonsLang3
+}

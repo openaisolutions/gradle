@@ -1,0 +1,8 @@
+// Service layer module
+
+dependencies {
+    implementation project(':data')
+    implementation project(':library')
+    implementation project(':common')
+    implementation libs.slf4j
+}

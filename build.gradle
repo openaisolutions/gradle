@@ -1,0 +1,38 @@
+plugins {
+    id 'eclipse'
+}
+
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'eclipse'
+
+    repositories {
+        mavenCentral()
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs = ['src/main/java']
+            java.srcDirs += ["${rootDir}/shared/src/main/java"]
+        }
+    }
+
+    dependencies {
+        implementation libs.slf4j
+        implementation libs.commonsIo
+    }
+
+    tasks.register('analyzeDeps',
+        org.gradle.api.tasks.diagnostics.DependencyReportTask)
+
+    eclipse {
+        classpath {
+            plusConfigurations += [configurations.runtimeClasspath]
+            file {
+                whenMerged { cp ->
+                    cp.entries.findAll { it instanceof org.gradle.plugins.ide.eclipse.model.SourceFolder }.each { it.output = null }
+                }
+            }
+        }
+    }
+}

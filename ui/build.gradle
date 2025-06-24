@@ -1,0 +1,9 @@
+// UI module for Swing application
+
+dependencies {
+    implementation project(':service')
+    implementation project(':library')
+    implementation project(':common')
+    implementation libs.slf4j
+    runtimeOnly libs.logback
+}

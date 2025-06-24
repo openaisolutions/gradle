@@ -1,0 +1,12 @@
+# Gradle
+.gradle/
+build/
+**/build/
+# Eclipse
+.project
+.classpath
+.settings/
+.docker/
+
+# Gradle Wrapper
+gradle/wrapper/gradle-wrapper.jar
