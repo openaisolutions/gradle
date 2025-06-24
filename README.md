@@ -47,3 +47,7 @@ with install4j for Windows. Example:
 2. In **Preferences ▸ Gradle ▸ Synchronization** enable *Synchronize automatically after builds*.
 3. Launch the `app` run configuration from the Gradle Tasks view. While it runs under the debugger, editing a method signature in `library` and saving will trigger HotswapAgent to reload the class.
 4. For instant recompiles run `./gradlew -t classes` in the background so Eclipse picks up new class files immediately.
+
+## Cookbook Documentation
+
+The `book/` directory contains the structure for the *Gradle Cookbook*. Each chapter includes an outline and a Jupyter notebook so you can experiment with the code.
