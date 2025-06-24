@@ -3,23 +3,10 @@ plugins {
 }
 
 subprojects {
-    apply plugin: 'java'
-    apply plugin: 'eclipse'
+    plugins.apply 'org.example.java-module'
 
     repositories {
         mavenCentral()
-    }
-
-    sourceSets {
-        main {
-            java.srcDirs = ['src/main/java']
-            java.srcDirs += ["${rootDir}/shared/src/main/java"]
-        }
-    }
-
-    dependencies {
-        implementation libs.slf4j
-        implementation libs.commonsIo
     }
 
     tasks.register('analyzeDeps',
