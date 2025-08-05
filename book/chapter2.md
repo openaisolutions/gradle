@@ -1,0 +1,169 @@
+### Chapter 2: Tracing the Fault Lines – From SVN and Ant to Gradle
+
+Migrating away from Ant and SVN is one of the first hurdles on the path toward a truly modular build.  This chapter recounts how we set up a Gradle monorepo, imported Ant targets, preserved the existing directory structure and introduced the Gradle wrapper.  It also addresses the practicalities of interacting with a Subversion repository from Gradle and explains how to structure the `settings.gradle` file to declare subprojects.  By following these steps you will lay a stable foundation for deeper refactoring in later chapters.
+
+#### Section 1: Setting Up a Gradle Monorepo
+
+The starting point for our migration was to convert the scattered Ant builds into a single Gradle “monorepo.”  Gradle’s multi‑project support makes this possible by allowing multiple modules to live under one root project.  The Gradle user guide illustrates the recommended directory layout: a `.gradle` directory for caches, a `gradle` folder for wrapper and version catalogs, a `settings.gradle` file at the root and a subdirectory for each module, each containing its own `build.gradle` file【692959745743629†L309-L329】.  For larger projects it’s common to add a `buildSrc` directory at the root.  Any code placed in `buildSrc` is automatically compiled and placed on the classpath of all subprojects【692959745743629†L389-L399】, which is an ideal place for shared tasks or plugins.
+
+Defining a monorepo is as simple as listing all subprojects in the `settings.gradle` file.  For example, a sample monorepo might have modules called `mobile‑app`, `web‑app`, `api`, `lib` and `documentation`.  The `settings.gradle` file includes them with `include("mobile‑app", "web‑app", "api", "lib", "documentation")`【692959745743629†L375-L387】.  The order of the `include` statements does not matter; Gradle derives the dependency graph from the `implementation` relationships defined in each subproject.  Running `gradle projects` prints a tree of project paths—use this to verify that Gradle discovered all of your modules and that the paths map correctly to your source tree【692959745743629†L475-L494】.  Establishing this monorepo early on allowed us to treat the legacy modules as first‑class Gradle subprojects while preserving their historical directory layout.
+
+#### Section 2: Importing Ant Projects with `ant.importBuild`
+
+With the monorepo structure in place, the next challenge is executing existing Ant targets from Gradle.  Gradle provides a built‑in Ant builder that can read a `build.xml` and expose Ant targets as Gradle tasks via the `ant.importBuild()` method.  The documentation shows that calling `ant.importBuild("build.xml")` in a `build.gradle` file parses the Ant build file and registers each Ant target as a corresponding Gradle task【763788660215550†L603-L630】.  Those tasks behave like any other Gradle task: you can add new tasks that depend on them, or attach additional actions.  For example, after importing a `hello` target, you can declare a new `intro` task that depends on `hello` and prints extra output【763788660215550†L642-L668】.  You can even rename imported tasks to avoid naming collisions by passing a transformer closure to `ant.importBuild()`【763788660215550†L749-L767】.
+
+Importing the Ant build provides a quick path to a working Gradle build.  The migration guide notes that this approach produces a build that is effectively identical to the original Ant build—target dependencies are retained and the same artifacts are produced【275621033162220†L320-L327】.  However, this convenience comes at a cost.  You must continue to maintain the Ant build file, and you lose many of Gradle’s advantages such as rich dependency management and plugin conventions【275621033162220†L328-L339】.  Moreover, imported builds are not compatible with Gradle’s configuration cache【275621033162220†L436-L439】.  Therefore we treated `ant.importBuild` as a stepping stone: it allowed us to execute familiar targets from the Gradle command line while gradually replacing them with idiomatic Gradle tasks.
+
+#### Section 3: Replicating the Old Structure in Gradle
+
+One of the most important lessons from the Gradle migration guide is to **avoid breaking the existing build while you are migrating**.  The manual advises keeping the old Ant build and the new Gradle build side by side until you are confident that they produce identical artifacts【275621033162220†L356-L371】.  Even small differences, such as the contents of a manifest file, can cause deployment or runtime errors【275621033162220†L366-L372】.  During our migration we resisted the temptation to reorganise files or adopt Gradle’s default source layout.  Instead, we configured each project to use the original source directories and resource folders by setting properties like `sourceSets.main.java.srcDirs` in the `build.gradle` file.  Only after we verified that Gradle produced the same JARs and WARs as the Ant build did we consider moving to the conventional `src/main/java` layout.
+
+#### Section 4: Setting Up SVN with Gradle
+
+Once we had the monorepo in place, we needed to interact with our existing Subversion repository.  Gradle does not include first‑class support for SVN, but the community offers several options.  A forum post on the Gradle help site notes that you can either use a third‑party SCM plugin, execute the `svn` command via Gradle’s `Exec` task or reuse an Ant task【351066348879194†L56-L62】.  We chose the simplest approach: we wrapped command‑line SVN calls in custom `Exec` tasks so the build could check out additional modules or export revision numbers when necessary.  For example:
+
+```groovy
+task exportRevision {
+    doLast {
+        exec {
+            commandLine 'svn', 'info', '--show-item', 'revision'
+        }
+    }
+}
+```
+
+Keeping source control operations separate from build logic turned out to be crucial.  We avoided coupling compilation to network access by running SVN tasks only when explicitly requested.  For more complex operations—such as updating multiple working copies or tagging releases—we relied on existing shell scripts rather than baking those steps into the Gradle build.  This separation made it easier to migrate the build itself without altering our version control workflows.
+
+#### Section 5: The Gradle Wrapper and Version Management
+
+A key part of standardising our build was adopting the Gradle wrapper.  The wrapper is a small script (`gradlew` and accompanying JARs) committed to the repository that downloads and runs a specific Gradle version if it isn’t already installed【210402656583069†L289-L297】.  The wrapper ensures that every developer and CI server uses the same Gradle distribution and eliminates the need to install Gradle manually.  Running `gradle wrapper` generates the wrapper files, and you can upgrade Gradle by re‑running the task with the `--gradle-version` flag【210402656583069†L331-L347】.  The user guide recommends checking the wrapper into version control and using it exclusively to run builds【210402656583069†L312-L323】.
+
+We configured the wrapper properties file (`gradle-wrapper.properties`) to specify the distribution type (`bin` vs. `all`) and the desired version【210402656583069†L354-L364】.  When the build runs for the first time, the wrapper automatically downloads the requested Gradle distribution and caches it in the user’s Gradle home directory.  Because our project still depended on Ant tasks, we disabled the configuration cache, but using the wrapper gave us a reproducible foundation for the migration.  In the early stages we kept the wrapper version close to the version used by our legacy plugins and upgraded gradually to avoid compatibility surprises【210402656583069†L441-L448】.
+
+#### Section 6: Subprojects and settings.gradle
+
+Managing tens of modules in a monorepo requires a clear `settings.gradle` file.  The multi‑project build guide shows that the root settings file is responsible for identifying all subprojects by calling `include()` with their project paths【692959745743629†L375-L387】.  Gradle then traverses the directory structure and creates a `Project` object for each included path.  For example, we listed our modules as:
+
+```groovy
+// settings.gradle
+include('core', 'api', 'webapp', 'desktop', 'plugins:pluginA', 'plugins:pluginB')
+```
+
+The order of these statements does not affect dependency resolution; Gradle constructs the graph from the `implementation` and `api` relationships defined in each module【692959745743629†L309-L329】.  Running `gradle projects` prints a tree of detected projects and helps verify that the module names and directory layout match expectations【692959745743629†L475-L494】.  Our `settings.gradle` also defined the root project’s name and configured the `buildCache` and `pluginManagement` sections.  We opted to leave the legacy directory layout intact and used Gradle’s `projectDir` property to point each module to its historical location when the folder structure did not match the project name.
+
+An additional convention worth noting is `buildSrc`.  Any code placed in a `buildSrc` directory is compiled and added to the classpath of all subprojects【692959745743629†L389-L399】.  We used `buildSrc` to hold custom tasks that wrapped our Ant scripts and to define common plugin implementations without creating a standalone plugin project.
+
+#### Section 7: Building Each Module
+
+Even though the monorepo houses all modules under one build, Gradle allows you to run tasks against a single subproject.  Prefixing a task name with the project path invokes that task only for the specified module.  For example, to build a module located in `webapp`, run:
+
+```
+./gradlew :webapp:build
+```
+
+This targeted build compiles and packages only the `webapp` project and its dependencies, dramatically reducing feedback time when making isolated changes.  You can also combine subproject paths with other tasks such as `test`, `publish` or custom tasks defined in the module.  When multiple modules need to be built together, specify each task path on the command line, or rely on Gradle’s up‑to‑date checks to avoid unnecessary work.  Building modules independently helped us verify that individual components could stand on their own before we attempted deeper refactoring.
+
+#### Section 8: Discovering Missing Dependencies
+
+Once the Ant targets were running under Gradle, we started noticing compile errors and class‑not‑found exceptions that never appeared in the Ant build.  These were the first signs of missing or misdeclared dependencies.  Gradle offers tools to visualize and debug the dependency graph.  The `dependencies` task renders a complete dependency tree for a project【814383946455057†L302-L311】, including direct and transitive dependencies, and marks repeated subtrees and unresolved elements with annotations【814383946455057†L347-L356】.  Running `./gradlew dependencies` without arguments lists all configurations for the current project; you can narrow the output using `--configuration compileClasspath` or `--configuration runtimeClasspath`【814383946455057†L359-L369】.  This allowed us to compare the dependencies declared in the Ant build (often hidden in Ivy or transitive JARs) with the dependencies resolved by Gradle.
+
+For our legacy libraries we also used the `dependencyInsight` task to identify why a particular version was selected or where a transitive dependency was coming from【814383946455057†L288-L312】.  By examining the dependency tree we could spot JARs that were implicitly provided by the application server or the Ant build but not declared in Gradle.  We then added them explicitly to the appropriate configuration or replaced them with project dependencies.  In some cases we discovered that missing dependencies were intentionally excluded in order to rely on a platform; those cases were documented and mapped to Gradle’s `compileOnly` or `runtimeOnly` configurations.  The dependency reports proved invaluable when reconciling the old classpath with Gradle’s more explicit dependency management.
+
+#### Section 9: Dealing with Cyclic Dependencies in Gradle
+
+The migration exposed several cyclic dependencies between our modules.  Cycles occur when module A depends on module B and module B depends back on module A either directly or indirectly.  Such cycles prevent Gradle from determining a build order and make the codebase difficult to reason about.  The Spring Modulith reference documentation describes a set of verification rules for modular applications: module dependencies must form a directed acyclic graph, efferent modules should only access API packages and explicitly allowed dependencies can be defined【311016459650721†L93-L104】.  Inspired by these rules, we configured our Gradle build to detect cycles by regularly running dependency graph reports and unit tests.
+
+To break cycles we applied several techniques.  First, we looked for common abstractions that could be extracted into a shared module with no dependencies on either side.  Second, we inverted dependencies by introducing interfaces in the depended‑on module and implementing them in the dependent module; Gradle’s `api` and `implementation` configurations made these relationships explicit.  Third, we used events or callbacks to decouple modules that needed to communicate but shouldn’t depend on each other.  Although breaking cycles sometimes required minor refactoring, the benefits were immediate: modules could be built and tested independently, and our dependency graphs became acyclic and easier to visualize.  Maintaining an acyclic structure became a guiding principle for the remainder of the migration.
+
+#### Section 10: Temporary Hacks – `compileOnly` and `runtimeOnly`
+
+During the early stages of migration we leaned on Gradle’s flexible dependency configurations to bridge gaps between the old and new worlds.  One of the most useful tools was the `compileOnly` configuration.  The Gradle blog introducing compile‑only dependencies explains that `compileOnly` behaves like Maven’s `provided` scope: it allows you to declare dependencies that are needed at compile time but should not be included on the runtime classpath【121253874567365†L109-L137】.  This is ideal for annotation processors, servlet APIs or optional libraries whose implementations are supplied by the application server.  Importantly, compile‑only dependencies are non‑transitive【121253874567365†L127-L131】, so they don’t leak into consuming projects.  Declaring them is as simple as:
+
+```groovy
+dependencies {
+    compileOnly 'javax.servlet:servlet-api:2.5'
+}
+```
+
+For libraries that were needed only at runtime—such as logging implementations or optional plugins—we used the `runtimeOnly` configuration.  The Gradle user guide shows that you can add files or external modules to `runtimeOnly`【994658545273186†L418-L432】.  When combined with `implementation` dependencies, `runtimeOnly` ensures that the classes are available on the runtime classpath without polluting the compile classpath.  In our migration we temporarily added legacy JARs to `runtimeOnly` so the application could start while we refactored the code to use proper project dependencies.  When running `gradle dependencies` we could see which dependencies belonged to `implementation`, `compileClasspath`, `runtimeClasspath` and `runtimeOnly`【994658545273186†L490-L549】, making it clear which hacks were still in place and needed to be removed.
+
+#### Section 11: Debugging Build Failures after Migration
+
+As we converted tasks and dependencies, build failures were inevitable.  Gradle provides several mechanisms to gather diagnostic information.  The logging documentation explains that you can increase the verbosity of a build by passing `--info` or `--debug` on the command line【858689180434055†L350-L373】.  Alternatively, you can set the `org.gradle.logging.level` property in `gradle.properties` to `info` or `debug`【858689180434055†L366-L370】.  When deeper insight is required, enabling stack traces helps locate the offending code.  Gradle offers `--stacktrace` and `--full-stacktrace` options which display truncated or full stacktraces respectively【858689180434055†L408-L437】.  The truncated stacktrace is recommended for everyday troubleshooting because it omits irrelevant Groovy internals while still pointing to the root cause【858689180434055†L419-L423】.
+
+Some issues arise before any tasks run.  For example, the troubleshooting guide notes that builds may fail to start if the Gradle daemon cannot communicate with the client due to network address translation (NAT) masquerading【411864422224135†L471-L496】.  In such cases the build fails immediately with a message about being unable to connect to the daemon.  Adjusting the network configuration or disabling NAT resolves the problem.  In our migration we also ran into exceptions thrown by third‑party plugins and syntax errors imported from Ant.  Running with `--stacktrace --info` and inspecting the daemon log file under `$GRADLE_USER_HOME/daemon` helped us trace these errors back to misconfigured tasks or incompatible plugin versions.  Over time we developed the habit of always running the first few builds with `--info` and `--stacktrace` so that we could quickly identify and fix any issues that appeared.
+
+#### Section 12: IDE Integration with Buildship
+
+Modern development teams expect their build tool to integrate seamlessly with their IDE.  Eclipse users can install **Buildship**, a collection of plug‑ins that provide deep Gradle support.  According to the Eclipse project description, Buildship “is a collection of Eclipse plug-ins that provide support for building software using Gradle”【56816376473026†L239-L244】 and aims to integrate Gradle deeply into the IDE【56816376473026†L239-L244】.  Once installed, Buildship uses Gradle’s Tooling API to import the `settings.gradle` and `build.gradle` files, create the corresponding Eclipse projects and configure classpaths.  Developers can then run Gradle tasks from within Eclipse, browse the dependency tree, and sync changes when the build script is modified.  The plug‑in also honours the Gradle wrapper, ensuring that the IDE uses the correct version of Gradle without manual setup.
+
+In our migration we configured Buildship to automatically synchronize the workspace whenever the build scripts changed.  This reduced the friction of adding new modules or dependencies—after editing `settings.gradle` we simply refreshed the Gradle view in Eclipse and Buildship recreated the missing projects.  When combined with `buildSrc` and our custom tasks, Buildship turned Eclipse into a first‑class Gradle IDE without requiring separate `eclipse` tasks or manual configuration files.
+
+#### Section 13: Impact on Developer Workflow
+
+Moving from Ant to Gradle changed the daily experience of our developers.  Tasks that used to be executed via shell scripts or IDE run configurations could now be invoked uniformly with `./gradlew`, making it easy to build, test and run any module.  The dependency management system eliminated the need to download JARs manually or edit the classpath by hand.  IDE integration through Buildship meant that the team no longer had to generate `.classpath` or `.project` files—Buildship read the build definitions directly and kept Eclipse in sync.  As a result, new team members could clone the repository, run `./gradlew build` and start working immediately.  The explicitness of Gradle’s `implementation`, `api`, `compileOnly` and `runtimeOnly` configurations also encouraged conversations about proper encapsulation and layering, which fed into the refactoring efforts described later in this book.
+
+#### Section 14: Synchronizing Eclipse Projects with Gradle
+
+When using Buildship, manual generation of Eclipse metadata becomes unnecessary.  The `gradle eclipse` task still exists, but it is primarily intended for legacy workflows; Buildship communicates with the Gradle Tooling API to derive the project model directly.  To synchronize the IDE, developers simply right‑click the Gradle project in the Eclipse “Gradle Tasks” view and select **Refresh Gradle Project**.  This triggers a reload of the `settings.gradle` and `build.gradle` files, recreates project descriptions, updates classpaths and downloads any new dependencies.  Because Buildship uses the same wrapper version that the command line does, the risk of version mismatches is eliminated.  In our experience this integration improved reliability and reduced the cognitive load of keeping IDE and build scripts aligned.
+
+#### Section 15: Graphing Dependencies to Identify Fault Lines
+
+One of the benefits of migrating to Gradle is the ability to visualize the dependency graph.  The `dependencies` task prints a tree of dependencies for each configuration and marks repeated subtrees and unresolved elements【814383946455057†L302-L309】【814383946455057†L347-L352】.  To focus on a particular configuration, you can pass `--configuration compileClasspath` or `--configuration runtimeClasspath`【814383946455057†L359-L369】.  Gradle also provides the `dependencyInsight` task, which explains why a specific module is present in the dependency graph and which version has been selected【814383946455057†L288-L312】.  For more complex builds the Build Scan service offers a web‑based visualizer of the dependency graph【814383946455057†L294-L300】.
+
+We used these tools to map out the relationships between modules and external libraries.  Visualizing the tree immediately highlighted “fault lines”: modules with a large number of transitive dependencies, outdated libraries or accidental cycles.  Armed with this information we could decide where to focus refactoring efforts.  For example, a module that depended on dozens of third‑party libraries through a single transitive dependency might warrant isolation into its own layer.  Similarly, modules that referenced each other across many packages signaled the need for interface extraction or event‑based communication.  Dependency graphs became an architectural diagnostic that complemented our code reviews.
+
+#### Section 16: Initial Refactoring Opportunities
+
+With the build running and the dependency graph visible, we started looking for low‑risk refactoring opportunities.  A good early target was to replace file‑based dependencies (`libs/foo.jar`) with proper project or external dependencies.  Doing so improved reproducibility and ensured that transitive dependencies were declared explicitly.  Another opportunity was to move common utility classes into a shared module.  This broke up some of the cycles identified earlier and reduced duplication.  We also consolidated duplicate Ant targets into single Gradle tasks, leveraging the ability to define tasks programmatically rather than copy‑pasting XML snippets.  Each small improvement reduced the difference between the Ant build and the Gradle build and laid the groundwork for more significant architectural changes.
+
+#### Section 17: Balancing Quick Fixes and Long‑term Goals
+
+Throughout the migration we had to balance immediate needs—getting the build working—with long‑term architectural goals.  The migration guide cautions against prematurely adopting Gradle conventions or reorganizing the codebase【275621033162220†L356-L371】.  Following that advice, we used `ant.importBuild` and temporary configurations like `compileOnly` and `runtimeOnly` to keep the build functional.  At the same time, we created a backlog of improvements, such as normalizing source layouts, introducing Gradle plugins for repeated logic and breaking up large modules.  By approaching the migration iteratively, we avoided big‑bang rewrites and minimized disruption to the development team.  Each quick fix was accompanied by a plan to remove it later, ensuring that hacks did not become permanent.
+
+#### Section 18: Lessons Learned from Early Migration
+
+The early stages of the Gradle migration taught us several lessons.  First, never underestimate the value of a clean dependency graph—tools like `dependencies` and `dependencyInsight` make it easy to spot problems that had been hidden in the Ant build.  Second, incremental improvements matter; even trivial changes such as replacing a file dependency with a proper module can have a ripple effect on build reproducibility.  Third, the Gradle wrapper is non‑negotiable for team consistency; having a single, versioned entry point for the build prevents “works on my machine” problems.  Finally, treat temporary hacks as temporary.  Document why `compileOnly` or `runtimeOnly` dependencies are used and schedule time to remove them once proper modules or plugins are in place.
+
+#### Section 19: Checklist for Migrating Additional Modules
+
+As we moved beyond the first few modules, we developed a repeatable process for adding more projects to the monorepo:
+
+1. **Verify the existing Ant build**.  Ensure that you can run the module’s original Ant targets and that you understand its inputs and outputs.
+2. **Add the module to `settings.gradle`**.  Use `include()` with the appropriate project path and, if necessary, set `projectDir` to point to the existing source location.
+3. **Import the Ant build**.  Call `ant.importBuild('build.xml')` within the module’s `build.gradle` to register the Ant targets.
+4. **Run `./gradlew <module>:tasks`** to verify that the targets are available and produce the same artifacts as the Ant build.
+5. **Map dependencies**.  Use `./gradlew <module>:dependencies` and compare the results to the Ant classpath.  Add missing jars to `implementation`, `compileOnly` or `runtimeOnly` as appropriate.
+6. **Replace file dependencies**.  Prefer project dependencies or external modules over local JARs.
+7. **Break cycles**.  Identify and eliminate cyclic dependencies by extracting shared code or inverting dependencies.
+8. **Add tests and continuous integration**.  Ensure that the module builds cleanly in isolation and as part of the monorepo.
+
+Following this checklist kept us focused and ensured that each module was migrated consistently.
+
+#### Section 20: Summary and Next Steps
+
+In this chapter we traced the fault lines between our legacy Ant/SVN build and a modern Gradle monorepo.  We set up a multi‑project build, imported Ant targets, configured the Gradle wrapper and pointed Gradle at our Subversion repository.  We learned how to explore the dependency graph and uncover missing jars, how to temporarily bridge gaps using `compileOnly` and `runtimeOnly`, and how to detect and eliminate cyclic dependencies.  We also integrated Eclipse via Buildship and saw the positive impact on developer workflow.  Equipped with these foundations, we are ready to tackle deeper refactoring in the next chapters—refining module boundaries, aligning dependency configurations and ultimately breaking the monolith into a clean, modular architecture.
+
+The guide further recommends deciding whether you truly have a multi‑project build before refactoring【275621033162220†L375-L379】.  Multi‑project builds take more work to migrate but often yield the greatest long‑term benefits.  For each module we selected an appropriate plugin—usually the Java Library plugin—which provides life‑cycle tasks like `compileJava` and `jar`【275621033162220†L381-L391】.  If a module’s Ant build relied on custom tasks, we imported those tasks and gradually replaced them with native Gradle tasks.  We also developed a mechanism to verify that the Gradle build produced the same artifacts, using scripts that compared file hashes between Ant and Gradle outputs.  Only when the outputs matched did we start moving common code into shared modules and adopting Gradle conventions【275621033162220†L393-L427】.  This disciplined approach kept the migration safe and incremental.
+
+#### Section 4: Setting Up SVN with Gradle
+
+Many legacy projects use Subversion (SVN) for version control.  Gradle itself does not include built‑in tasks for interacting with SCM systems, but it can run any command‑line tool or Ant task.  In a Gradle forum discussion, an experienced contributor explained that to perform SVN operations you can either use a third‑party SCM plugin, call the `svn` executable via Gradle’s `Exec` task, or leverage Ant tasks【351066348879194†L56-L62】.  For our migration we chose to keep SVN commands simple: a custom Gradle task wrapped calls to `svn update` and `svn commit` using the `Exec` API, and we used the `gradle-svntools` plugin for more advanced operations like tagging releases.  The plugin provides tasks such as `SvnTag`, `SvnCommit` and `SvnUpdate`, which mirror common SVN commands and can be configured with repository URLs and credentials.
+
+It’s important to recognise that mixing build logic with SCM operations can complicate your build.  We recommend keeping version control tasks separate from compilation and packaging.  For example, use a separate `release.gradle` script that performs an `svn update` before the build, writes build metadata to a properties file, commits those changes and finally tags the repository with the new version.  This separation ensures that regular development builds aren’t blocked by SVN connectivity issues while still allowing automated release pipelines to manage version control.
+
+#### Section 5: The Gradle Wrapper and Version Management
+
+To guarantee that every developer and CI server uses the same version of Gradle, we added the Gradle Wrapper to the project.  The wrapper consists of a small shell script (`gradlew`/`gradlew.bat`) and a properties file that specify the Gradle distribution to download.  The user guide emphasises that the recommended way to execute any Gradle build is with the wrapper【210402656583069†L289-L297】.  Rather than running `gradle build`, you invoke `./gradlew build`, which downloads the declared version of Gradle if necessary【210402656583069†L289-L297】.  This standardises the project on a given Gradle version, improving reliability and reproducibility【210402656583069†L312-L320】.  Changing the version is as simple as modifying the `distributionUrl` in `gradle/wrapper/gradle-wrapper.properties`, and Gradle will provision the new version for all users【210402656583069†L321-L323】.
+
+Generating the wrapper is a one‑time process.  Running `gradle wrapper` creates the scripts and properties file【210402656583069†L331-L347】.  The properties file records the Gradle version and distribution type—`bin` for runtime only or `all` to include sources and documentation【210402656583069†L354-L364】.  To upgrade the wrapper, you can execute `gradle wrapper --gradle-version 9.0.0 --distribution-type all`, which regenerates the wrapper files with the new version【210402656583069†L441-L448】.  Because the wrapper JAR is executed on developer machines, the manual recommends checking it into version control and verifying its integrity【210402656583069†L348-L352】.  With the wrapper in place, every contributor runs the build in a controlled and reproducible environment.
+
+#### Section 6: Subprojects and `settings.gradle`
+
+The heart of a multi‑project build is the `settings.gradle` (or `settings.gradle.kts`) file.  This file tells Gradle which directories are considered subprojects.  The user guide demonstrates that a typical multi‑project layout contains the wrapper files and a `settings.gradle` file at the root, followed by subdirectories—each with its own `build.gradle`—representing the modules【692959745743629†L309-L329】.  To include the modules in the build, the `settings.gradle` file calls `include(...)` with their names.  In the example from the guide, the root project includes `"mobile‑app", "web‑app", "api", "lib"` and `"documentation"`【692959745743629†L375-L387】.  Gradle automatically creates project paths like `:mobile‑app` and `:lib` based on these names, and the order of includes does not affect build order【692959745743629†L375-L387】.
+
+The `buildSrc` directory is a special subproject that allows you to share build logic across all modules.  Any classes or scripts you place in `buildSrc/src/main/java` or `buildSrc/src/main/groovy` are compiled and added to the classpath of every `build.gradle` file【692959745743629†L389-L399】.  This is useful for centralising custom tasks or plugins.  If your build logic grows large, consider extracting it into its own Gradle build and including it via a composite build【692959745743629†L403-L448】.  To explore the project structure, run `gradle projects` to list all subprojects and verify their paths【692959745743629†L475-L494】.  Understanding how `settings.gradle` defines the project hierarchy is crucial when wiring dependencies between modules and configuring tasks for individual subprojects.
+
+#### Section 7: Building Each Module
+
+One advantage of a multi‑project build is that you can build or test individual modules without rebuilding the entire system.  Gradle uses project paths to identify tasks in subprojects.  In a Stack Overflow discussion, an expert explained that to build a single module named `ABC`, you can run `gradle :ABC:build`【243658728970031†L1036-L1040】.  The leading colon represents the root project, `ABC` is the subproject name and `build` is the task.  If you want to clean and build the module, you can run `gradle :ABC:clean :ABC:build`, and Gradle will evaluate and run only the tasks in that subproject and its dependencies.  Alternatively, you can navigate into the module’s directory and run `gradle build` with the `-p` option to specify the project directory.  Building modules separately speeds up feedback loops during migration and helps isolate problems—if a module fails to compile, you can focus on its build script and dependencies without being distracted by unrelated modules.
