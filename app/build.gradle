@@ -14,7 +14,7 @@ configurations {
 
 dependencies {
     implementation project(':ui')
-    developmentOnly 'org.hotswapagent:hotswap-agent-core:2.0.2'
+    developmentOnly 'org.hotswapagent:hotswap-agent-core:2.0.4'
 }
 
 tasks.named('run') {
