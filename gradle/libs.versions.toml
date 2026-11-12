@@ -2,4 +2,4 @@
 slf4j = "org.slf4j:slf4j-api:1.7.36"
 commonsIo = "commons-io:commons-io:2.11.0"
 commonsLang3 = "org.apache.commons:commons-lang3:3.12.0"
-logback = "ch.qos.logback:logback-classic:1.2.12"
+logback = "ch.qos.logback:logback-classic:1.6.6"
